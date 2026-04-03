@@ -180,6 +180,8 @@
                         <input type="number" id="tradeResult" step="0.1" placeholder="0">
                     </div>
                 </div>
+                <input type="file" id="tradeImage" accept="image/*">
+<div id="imagePreview"></div>
                 <div class="form-group">
                     <label>Notes</label>
                     <textarea id="tradeNotes" rows="2" placeholder="Trade details..."></textarea>
@@ -423,35 +425,69 @@
         }
 
         document.getElementById('addTradeBtn').onclick = async () => {
-            const date = document.getElementById('tradeDate').value;
-            const result = parseFloat(document.getElementById('tradeResult').value);
-            const notes = document.getElementById('tradeNotes').value;
+    const date = document.getElementById('tradeDate').value;
+    const result = parseFloat(document.getElementById('tradeResult').value);
+    const notes = document.getElementById('tradeNotes').value;
+    const file = document.getElementById('tradeImage')?.files[0]; // 🖼️ image
 
-            if (!date || isNaN(result)) {
-                showToast('Please fill in date and result', 'error');
-                return;
-            }
+    if (!date || isNaN(result)) {
+        showToast('Please fill in date and result', 'error');
+        return;
+    }
 
-            try {
-                const { error } = await client.from('trades').insert({
-                    account_id: currentAccount.id,
-                    trade_date: date,
-                    trade_number: allTrades.length + 1,
-                    result,
-                    notes
-                });
+    let imageUrl = null;
 
-                if (error) throw error;
-                
-                showToast('Trade added successfully!');
-                document.getElementById('tradeDate').value = new Date().toISOString().split('T')[0];
-                document.getElementById('tradeResult').value = '';
-                document.getElementById('tradeNotes').value = '';
-                loadTrades();
-            } catch (err) {
-                showError(err);
-            }
-        };
+    try {
+        // 🖼️ Upload image (only if selected)
+        if (file) {
+            const fileName = `${currentUser.id}-${Date.now()}-${file.name}`;
+
+            const { error: uploadError } = await client.storage
+                .from('trade-images')
+                .upload(fileName, file);
+
+            if (uploadError) throw uploadError;
+
+            const { data } = client.storage
+                .from('trade-images')
+                .getPublicUrl(fileName);
+
+            imageUrl = data.publicUrl;
+        }
+
+        // 💾 Insert trade
+        const { error } = await client.from('trades').insert({
+            account_id: currentAccount.id,
+            trade_date: date,
+            trade_number: allTrades.length + 1,
+            result,
+            notes,
+            image_url: imageUrl,              // 🖼️ saved
+            user_email: currentUser.email    // 👤 saved
+        });
+
+        if (error) throw error;
+
+        showToast('Trade added successfully!');
+
+        // 🔄 Reset form
+        document.getElementById('tradeDate').value = new Date().toISOString().split('T')[0];
+        document.getElementById('tradeResult').value = '';
+        document.getElementById('tradeNotes').value = '';
+        
+        if (document.getElementById('tradeImage')) {
+            document.getElementById('tradeImage').value = '';
+        }
+        if (document.getElementById('imagePreview')) {
+            document.getElementById('imagePreview').innerHTML = '';
+        }
+
+        loadTrades();
+
+    } catch (err) {
+        showError(err);
+    }
+};
 
         async function deleteTrade(tradeId) {
             if (!confirm('Delete this trade?')) return;
@@ -622,6 +658,21 @@
         document.getElementById('settingsBtn').onclick = () => {
             showToast('Settings coming soon!');
         };
+document.getElementById('tradeImage').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    const preview = document.getElementById('imagePreview');
+    preview.innerHTML = '';
+
+    if (!file) return;
+
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(file);
+    img.style.width = '100px';
+    img.style.marginTop = '10px';
+
+    preview.appendChild(img);
+});
+        
     </script>
 </body>
 </html>
