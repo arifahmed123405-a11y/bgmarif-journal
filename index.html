@@ -310,35 +310,65 @@
         });
 
         document.getElementById('signInBtn').onclick = async () => {
-            const email = document.getElementById('loginEmail').value;
-            const password = document.getElementById('loginPassword').value;
-            if (!email || !password) {
-                showToast('Please fill in all fields', 'error');
-                return;
-            }
-            const { error } = await client.auth.signInWithPassword({ email, password });
-            if (error) {
-                showToast(error.message, 'error');
-            }
-        };
+    const email = document.getElementById('loginEmail').value;
+    const password = document.getElementById('loginPassword').value;
+
+    if (!email || !password) {
+        showToast('Please fill in all fields', 'error');
+        return;
+    }
+
+    const { data, error } = await client.auth.signInWithPassword({ email, password });
+
+    if (error) {
+        showToast(error.message, 'error');
+        return;
+    }
+
+    // ✅ SUCCESS
+    showToast('Login successful!');
+
+    // 🔥 SWITCH UI
+    document.getElementById('loginScreen').style.display = 'none';
+document.getElementById('appScreen').style.display = 'block';
+
+    // 🔥 LOAD DATA
+    loadAccounts(); // or your main function
+};
 
         document.getElementById('signUpBtn').onclick = async () => {
-            const email = document.getElementById('loginEmail').value;
-            const password = document.getElementById('loginPassword').value;
-            if (!email || !password) {
-                showToast('Please fill in all fields', 'error');
-                return;
-            }
-            const { error } = await client.auth.signUp({ email, password });
-            if (error) {
-                showToast(error.message, 'error');
-            } else {
-                showToast('Account created! Please sign in.');
-            }
-        };
+    const email = document.getElementById('loginEmail').value;
+    const password = document.getElementById('loginPassword').value;
 
-        document.getElementById('signOutBtn').onclick = () => client.auth.signOut();
+    if (!email || !password) {
+        showToast('Please fill in all fields', 'error');
+        return;
+    }
 
+    const { data, error } = await client.auth.signUp({ email, password });
+
+    if (error) {
+        showToast(error.message, 'error');
+        return;
+    }
+
+    showToast('Account created! You are now logged in.');
+
+    // 🔥 SAME AS LOGIN
+    document.getElementById('loginScreen').style.display = 'block';
+    document.getElementById('appScreen').style.display = 'none';
+
+    loadAccounts();
+          
+};
+document.getElementById('signOutBtn').onclick = async () => {
+    await client.auth.signOut();
+
+    document.getElementById('loginScreen').style.display = 'block';
+    document.getElementById('appScreen').style.display = 'none';
+};
+
+        
         // ==================== ACCOUNTS ====================
         async function loadAccounts() {
             try {
@@ -682,6 +712,18 @@ await client.from('trades').insert({
     result,
     notes
 });
+async function checkUser() {
+    const { data: { session } } = await client.auth.getSession();
+
+    if (session) {
+        document.getElementById('authPage').style.display = 'none';
+        document.getElementById('appPage').style.display = 'block';
+        loadAccounts();
+    }
+}
+
+checkUser();
+        
     </script>
 </body>
 </html>
