@@ -180,8 +180,6 @@
                         <input type="number" id="tradeResult" step="0.1" placeholder="0">
                     </div>
                 </div>
-                <input type="file" id="tradeImage" accept="image/*">
-<div id="imagePreview"></div>
                 <div class="form-group">
                     <label>Notes</label>
                     <textarea id="tradeNotes" rows="2" placeholder="Trade details..."></textarea>
@@ -310,65 +308,35 @@
         });
 
         document.getElementById('signInBtn').onclick = async () => {
-    const email = document.getElementById('loginEmail').value;
-    const password = document.getElementById('loginPassword').value;
-
-    if (!email || !password) {
-        showToast('Please fill in all fields', 'error');
-        return;
-    }
-
-    const { data, error } = await client.auth.signInWithPassword({ email, password });
-
-    if (error) {
-        showToast(error.message, 'error');
-        return;
-    }
-
-    // ✅ SUCCESS
-    showToast('Login successful!');
-
-    // 🔥 SWITCH UI
-    document.getElementById('loginScreen').style.display = 'none';
-document.getElementById('appScreen').style.display = 'block';
-
-    // 🔥 LOAD DATA
-    loadAccounts(); // or your main function
-};
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            if (!email || !password) {
+                showToast('Please fill in all fields', 'error');
+                return;
+            }
+            const { error } = await client.auth.signInWithPassword({ email, password });
+            if (error) {
+                showToast(error.message, 'error');
+            }
+        };
 
         document.getElementById('signUpBtn').onclick = async () => {
-    const email = document.getElementById('loginEmail').value;
-    const password = document.getElementById('loginPassword').value;
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            if (!email || !password) {
+                showToast('Please fill in all fields', 'error');
+                return;
+            }
+            const { error } = await client.auth.signUp({ email, password });
+            if (error) {
+                showToast(error.message, 'error');
+            } else {
+                showToast('Account created! Please sign in.');
+            }
+        };
 
-    if (!email || !password) {
-        showToast('Please fill in all fields', 'error');
-        return;
-    }
+        document.getElementById('signOutBtn').onclick = () => client.auth.signOut();
 
-    const { data, error } = await client.auth.signUp({ email, password });
-
-    if (error) {
-        showToast(error.message, 'error');
-        return;
-    }
-
-    showToast('Account created! You are now logged in.');
-
-    // 🔥 SAME AS LOGIN
-    document.getElementById('loginScreen').style.display = 'block';
-    document.getElementById('appScreen').style.display = 'none';
-
-    loadAccounts();
-          
-};
-document.getElementById('signOutBtn').onclick = async () => {
-    await client.auth.signOut();
-
-    document.getElementById('loginScreen').style.display = 'block';
-    document.getElementById('appScreen').style.display = 'none';
-};
-
-        
         // ==================== ACCOUNTS ====================
         async function loadAccounts() {
             try {
@@ -455,69 +423,35 @@ document.getElementById('signOutBtn').onclick = async () => {
         }
 
         document.getElementById('addTradeBtn').onclick = async () => {
-    const date = document.getElementById('tradeDate').value;
-    const result = parseFloat(document.getElementById('tradeResult').value);
-    const notes = document.getElementById('tradeNotes').value;
-    const file = document.getElementById('tradeImage')?.files[0]; // 🖼️ image
+            const date = document.getElementById('tradeDate').value;
+            const result = parseFloat(document.getElementById('tradeResult').value);
+            const notes = document.getElementById('tradeNotes').value;
 
-    if (!date || isNaN(result)) {
-        showToast('Please fill in date and result', 'error');
-        return;
-    }
+            if (!date || isNaN(result)) {
+                showToast('Please fill in date and result', 'error');
+                return;
+            }
 
-    let imageUrl = null;
+            try {
+                const { error } = await client.from('trades').insert({
+                    account_id: currentAccount.id,
+                    trade_date: date,
+                    trade_number: allTrades.length + 1,
+                    result,
+                    notes
+                });
 
-    try {
-        // 🖼️ Upload image (only if selected)
-        if (file) {
-            const fileName = `${currentUser.id}-${Date.now()}-${file.name}`;
-
-            const { error: uploadError } = await client.storage
-                .from('trade-images')
-                .upload(fileName, file);
-
-            if (uploadError) throw uploadError;
-
-            const { data } = client.storage
-                .from('trade-images')
-                .getPublicUrl(fileName);
-
-            imageUrl = data.publicUrl;
-        }
-
-        // 💾 Insert trade
-        const { error } = await client.from('trades').insert({
-            account_id: currentAccount.id,
-            trade_date: date,
-            trade_number: allTrades.length + 1,
-            result,
-            notes,
-            image_url: imageUrl,              // 🖼️ saved
-            user_email: currentUser.email    // 👤 saved
-        });
-
-        if (error) throw error;
-
-        showToast('Trade added successfully!');
-
-        // 🔄 Reset form
-        document.getElementById('tradeDate').value = new Date().toISOString().split('T')[0];
-        document.getElementById('tradeResult').value = '';
-        document.getElementById('tradeNotes').value = '';
-        
-        if (document.getElementById('tradeImage')) {
-            document.getElementById('tradeImage').value = '';
-        }
-        if (document.getElementById('imagePreview')) {
-            document.getElementById('imagePreview').innerHTML = '';
-        }
-
-        loadTrades();
-
-    } catch (err) {
-        showError(err);
-    }
-};
+                if (error) throw error;
+                
+                showToast('Trade added successfully!');
+                document.getElementById('tradeDate').value = new Date().toISOString().split('T')[0];
+                document.getElementById('tradeResult').value = '';
+                document.getElementById('tradeNotes').value = '';
+                loadTrades();
+            } catch (err) {
+                showError(err);
+            }
+        };
 
         async function deleteTrade(tradeId) {
             if (!confirm('Delete this trade?')) return;
@@ -688,42 +622,7 @@ document.getElementById('signOutBtn').onclick = async () => {
         document.getElementById('settingsBtn').onclick = () => {
             showToast('Settings coming soon!');
         };
-document.getElementById('tradeImage').addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    const preview = document.getElementById('imagePreview');
-    preview.innerHTML = '';
-
-    if (!file) return;
-
-    const img = document.createElement('img');
-    img.src = URL.createObjectURL(file);
-    img.style.width = '100px';
-    img.style.marginTop = '10px';
-
-    preview.appendChild(img);
-});
-        const { data: { user } } = await client.auth.getUser();
-
-await client.from('trades').insert({
-    user_id: user.id,
-    account_id: currentAccount.id,
-    trade_date: date,
-    trade_number: allTrades.length + 1,
-    result,
-    notes
-});
-async function checkUser() {
-    const { data: { session } } = await client.auth.getSession();
-
-    if (session) {
-        document.getElementById('authPage').style.display = 'none';
-        document.getElementById('appPage').style.display = 'block';
-        loadAccounts();
-    }
-}
-
-checkUser();
-        
     </script>
 </body>
 </html>
+  
