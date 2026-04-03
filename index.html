@@ -672,7 +672,16 @@ document.getElementById('tradeImage').addEventListener('change', (e) => {
 
     preview.appendChild(img);
 });
-        
+        const { data: { user } } = await client.auth.getUser();
+
+await client.from('trades').insert({
+    user_id: user.id,
+    account_id: currentAccount.id,
+    trade_date: date,
+    trade_number: allTrades.length + 1,
+    result,
+    notes
+});
     </script>
 </body>
 </html>
