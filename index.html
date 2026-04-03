@@ -18,7 +18,7 @@
         .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(37, 99, 235, 0.3); }
         .btn-secondary { background: #334155; color: white; }
         .btn-secondary:hover { background: #475569; }
-        .btn-danger { background: #dc2626; color: white; }
+        .btn-danger { background: #dc2>626; color: white; }
         .btn-danger:hover { background: #b91c1c; }
         .btn-small { padding: 6px 12px; font-size: 12px; }
         .card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
@@ -177,10 +177,11 @@
                     </div>
                     <div class="form-group" style="margin-bottom: 0;">
                         <label>Result % (-1, 0, +2)</label>
-                        <input type="number" id="tradeResult" step="0.1" placeholder="0">
-                    </div>
+                        <input type="number" id="pnl" placeholder="Profit / Loss ($)" />
+                    
                 </div>
                 <div class="form-group">
+<input type="file" id="setupImage" />
                     <label>Notes</label>
                     <textarea id="tradeNotes" rows="2" placeholder="Trade details..."></textarea>
                 </div>
@@ -262,366 +263,146 @@
 
     <script>
         // ==================== CONFIG ====================
-        const SUPABASE_URL = 'https://qdlfzqjdxunkexlejcyx.supabase.co';
-        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFkbGZ6cWpkeHVua2V4bGVqY3l4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMzExMjQsImV4cCI6MjA5MDcwNzEyNH0.rS_IjBZJs2lzSgbnVv8tWPtIc_5JqSw1fnQevzg46sk';
-        
-        const { createClient } = supabase;
-        const client = createClient(SUPABASE_URL, SUPABASE_KEY);
+const SUPABASE_URL = "YOUR_URL";
+const SUPABASE_ANON_KEY = "YOUR_KEY";
 
-        // ==================== STATE ====================
-        let currentUser = null;
-        let currentAccount = null;
-        let allTrades = [];
-        let allAccounts = [];
-        let equityChart = null;
+const client = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        // ==================== HELPERS ====================
-        function showToast(message, type = 'success') {
-            const toast = document.createElement('div');
-            toast.className = 'toast';
-            toast.style.borderColor = type === 'success' ? '#10b981' : '#ef4444';
-            toast.textContent = message;
-            document.body.appendChild(toast);
-            setTimeout(() => toast.remove(), 3000);
+// LOGIN
+document.getElementById("loginBtn").onclick = async () => {
+    const email = document.getElementById("email").value;
+    const password = document.getElementById("password").value;
+
+    const { error } = await client.auth.signInWithPassword({
+        email,
+        password
+    });
+
+    if (!error) {
+        document.getElementById("loginScreen").style.display = "none";
+        document.getElementById("appScreen").style.display = "block";
+        loadAccounts();
+    } else {
+        alert(error.message);
+    }
+};
+
+// SIGN OUT
+document.getElementById('signOutBtn').onclick = async () => {
+    await client.auth.signOut();
+    document.getElementById('loginScreen').style.display = 'block';
+    document.getElementById('appScreen').style.display = 'none';
+};
+
+// CREATE ACCOUNT (❌ no risk per trade)
+document.getElementById("createAccountBtn").onclick = async () => {
+    const name = document.getElementById("accName").value;
+    const balance = document.getElementById("balance").value;
+
+    const user = (await client.auth.getUser()).data.user;
+
+    await client.from("accounts").insert({
+        name,
+        starting_balance: balance,
+        user_id: user.id
+    });
+
+    loadAccounts();
+};
+
+// LOAD ACCOUNTS
+async function loadAccounts() {
+    const user = (await client.auth.getUser()).data.user;
+
+    const { data } = await client
+        .from("accounts")
+        .select("*")
+        .eq("user_id", user.id);
+
+    const container = document.getElementById("accountsList");
+    container.innerHTML = "";
+
+    data.forEach(acc => {
+        const div = document.createElement("div");
+        div.innerHTML = `
+            <h3>${acc.name}</h3>
+            <p>Balance: $${acc.starting_balance}</p>
+            <button onclick="openAccount('${acc.id}')">Open</button>
+        `;
+        container.appendChild(div);
+    });
+}
+
+// OPEN ACCOUNT
+async function openAccount(accountId) {
+    window.currentAccount = accountId;
+    loadTrades();
+}
+
+// ADD TRADE
+document.getElementById("addTradeBtn").onclick = async () => {
+    const pnl = parseFloat(document.getElementById("pnl").value);
+    const file = document.getElementById("setupImage").files[0];
+
+    let imageUrl = null;
+
+    if (file) {
+        const fileName = Date.now() + "-" + file.name;
+
+        const { data, error } = await client.storage
+            .from("trade-images")
+            .upload(fileName, file);
+
+        if (!error) {
+            imageUrl = `${SUPABASE_URL}/storage/v1/object/public/trade-images/${fileName}`;
         }
+    }
 
-        function showError(err) {
-            console.error('Error:', err);
-            showToast(err.message || 'An error occurred', 'error');
-        }
+    // percentage calc
+    const account = await client
+        .from("accounts")
+        .select("*")
+        .eq("id", window.currentAccount)
+        .single();
 
-        // ==================== AUTH ====================
-        client.auth.onAuthStateChange((event, session) => {
-            if (session) {
-                currentUser = session.user;
-                document.getElementById('loginScreen').classList.add('hidden');
-                document.getElementById('appScreen').classList.remove('hidden');
-                document.getElementById('userEmail').textContent = session.user.email;
-                document.getElementById('signOutBtn').classList.remove('hidden');
-                loadAccounts();
-            } else {
-                currentUser = null;
-                document.getElementById('loginScreen').classList.remove('hidden');
-                document.getElementById('appScreen').classList.add('hidden');
-                document.getElementById('signOutBtn').classList.add('hidden');
-            }
-        });
+    const balance = account.data.starting_balance;
+    const percent = (pnl / balance) * 100;
 
-        document.getElementById('signInBtn').onclick = async () => {
-            const email = document.getElementById('loginEmail').value;
-            const password = document.getElementById('loginPassword').value;
-            if (!email || !password) {
-                showToast('Please fill in all fields', 'error');
-                return;
-            }
-            const { error } = await client.auth.signInWithPassword({ email, password });
-            if (error) {
-                showToast(error.message, 'error');
-            }
-        };
+    await client.from("trades").insert({
+        account_id: window.currentAccount,
+        pnl: pnl,
+        pnl_percent: percent,
+        image_url: imageUrl
+    });
 
-        document.getElementById('signUpBtn').onclick = async () => {
-            const email = document.getElementById('loginEmail').value;
-            const password = document.getElementById('loginPassword').value;
-            if (!email || !password) {
-                showToast('Please fill in all fields', 'error');
-                return;
-            }
-            const { error } = await client.auth.signUp({ email, password });
-            if (error) {
-                showToast(error.message, 'error');
-            } else {
-                showToast('Account created! Please sign in.');
-            }
-        };
+    loadTrades();
+};
 
-        document.getElementById('signOutBtn').onclick = () => client.auth.signOut();
+// LOAD TRADES
+async function loadTrades() {
+    const { data } = await client
+        .from("trades")
+        .select("*")
+        .eq("account_id", window.currentAccount);
 
-        // ==================== ACCOUNTS ====================
-        async function loadAccounts() {
-            try {
-                const { data, error } = await client.from('accounts').select('*').eq('user_id', currentUser.id);
-                if (error) throw error;
-                
-                allAccounts = data || [];
-                const select = document.getElementById('accountSelect');
-                select.innerHTML = '';
-                
-                allAccounts.forEach(acc => {
-                    const option = document.createElement('option');
-                    option.value = acc.id;
-                    option.textContent = acc.name;
-                    select.appendChild(option);
-                });
+    const container = document.getElementById("tradesList");
+    container.innerHTML = "";
 
-                if (allAccounts.length > 0) {
-                    currentAccount = allAccounts[0];
-                    select.value = currentAccount.id;
-                    loadTrades();
-                } else {
-                    document.getElementById('accountModal').classList.add('show');
-                }
+    data.forEach(trade => {
+        const div = document.createElement("div");
 
-                select.onchange = () => {
-                    currentAccount = allAccounts.find(a => a.id === select.value);
-                    loadTrades();
-                };
-            } catch (err) {
-                showError(err);
-            }
-        }
+        const color = trade.pnl < 0 ? "red" : "green";
 
-        document.getElementById('createAccountBtn').onclick = () => {
-            document.getElementById('accountModal').classList.add('show');
-        };
+        div.innerHTML = `
+            <p style="color:${color}; font-weight:bold;">
+                $${trade.pnl} (${trade.pnl_percent.toFixed(2)}%)
+            </p>
+            ${trade.image_url ? `<img src="${trade.image_url}" width="200"/>` : ""}
+        `;
 
-        document.getElementById('createAccountSubmitBtn').onclick = async () => {
-            const name = document.getElementById('modalAccountName').value;
-            const balance = parseFloat(document.getElementById('modalStartBalance').value);
-            const risk = parseFloat(document.getElementById('modalRiskPerTrade').value);
-
-            if (!name || !balance || !risk) {
-                showToast('Please fill in all fields', 'error');
-                return;
-            }
-
-            try {
-                const { data, error } = await client.from('accounts').insert({
-                    user_id: currentUser.id,
-                    name,
-                    starting_balance: balance,
-                    risk_per_trade: risk
-                }).select();
-
-                if (error) throw error;
-                
-                showToast('Account created successfully!');
-                document.getElementById('accountModal').classList.remove('show');
-                document.getElementById('modalAccountName').value = 'EURUSD Main';
-                document.getElementById('modalStartBalance').value = '5000';
-                document.getElementById('modalRiskPerTrade').value = '50';
-                loadAccounts();
-            } catch (err) {
-                showError(err);
-            }
-        };
-
-        // ==================== TRADES ====================
-        async function loadTrades() {
-            if (!currentAccount) return;
-            try {
-                const { data, error } = await client.from('trades').select('*').eq('account_id', currentAccount.id).order('trade_date', { ascending: true });
-                if (error) throw error;
-                
-                allTrades = data || [];
-                updateDashboard();
-                updateTradesTable();
-                updateAnalysis();
-            } catch (err) {
-                showError(err);
-            }
-        }
-
-        document.getElementById('addTradeBtn').onclick = async () => {
-            const date = document.getElementById('tradeDate').value;
-            const result = parseFloat(document.getElementById('tradeResult').value);
-            const notes = document.getElementById('tradeNotes').value;
-
-            if (!date || isNaN(result)) {
-                showToast('Please fill in date and result', 'error');
-                return;
-            }
-
-            try {
-                const { error } = await client.from('trades').insert({
-                    account_id: currentAccount.id,
-                    trade_date: date,
-                    trade_number: allTrades.length + 1,
-                    result,
-                    notes
-                });
-
-                if (error) throw error;
-                
-                showToast('Trade added successfully!');
-                document.getElementById('tradeDate').value = new Date().toISOString().split('T')[0];
-                document.getElementById('tradeResult').value = '';
-                document.getElementById('tradeNotes').value = '';
-                loadTrades();
-            } catch (err) {
-                showError(err);
-            }
-        };
-
-        async function deleteTrade(tradeId) {
-            if (!confirm('Delete this trade?')) return;
-            try {
-                const { error } = await client.from('trades').delete().eq('id', tradeId);
-                if (error) throw error;
-                showToast('Trade deleted');
-                loadTrades();
-            } catch (err) {
-                showError(err);
-            }
-        }
-
-        document.getElementById('tradeDate').valueAsDate = new Date();
-
-        // ==================== DASHBOARD ====================
-        function updateDashboard() {
-            if (!currentAccount || allTrades.length === 0) {
-                document.getElementById('recentTrades').innerHTML = '<p style="color: #94a3b8; text-align: center; padding: 20px;">No trades yet. Start by adding your first trade!</p>';
-                return;
-            }
-
-            const stats = {
-                wins: allTrades.filter(t => t.result > 0).length,
-                losses: allTrades.filter(t => t.result < 0).length,
-                pnl: allTrades.reduce((sum, t) => sum + (t.result * currentAccount.risk_per_trade), 0)
-            };
-
-            const finalBalance = currentAccount.starting_balance + stats.pnl;
-            const winRate = allTrades.length > 0 ? ((stats.wins / allTrades.length) * 100).toFixed(1) : 0;
-            const bestTrade = Math.max(...allTrades.map(t => t.result));
-            const worstTrade = Math.min(...allTrades.map(t => t.result));
-            const avgTrade = (allTrades.reduce((sum, t) => sum + t.result, 0) / allTrades.length).toFixed(2);
-
-            document.getElementById('currentBalance').textContent = finalBalance.toFixed(2);
-            document.getElementById('pnlDisplay').textContent = `$${stats.pnl.toFixed(2)}`;
-            document.getElementById('pnlDisplay').className = stats.pnl >= 0 ? 'stat-value positive' : 'stat-value negative';
-            document.getElementById('winRate').textContent = winRate;
-            document.getElementById('totalTrades').textContent = allTrades.length;
-            document.getElementById('bestTrade').textContent = `+${bestTrade}%`;
-            document.getElementById('worstTrade').textContent = `${worstTrade}%`;
-            document.getElementById('avgTrade').textContent = `${avgTrade}%`;
-
-            updateEquityChart();
-
-            const recent = allTrades.slice(-5).reverse();
-            document.getElementById('recentTrades').innerHTML = recent.map(t => `
-                <div style="padding: 12px; background: #0f172a; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid ${t.result > 0 ? '#10b981' : t.result < 0 ? '#ef4444' : '#94a3b8'};">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <strong>${t.trade_date}</strong>
-                            ${t.notes ? `<div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">${t.notes}</div>` : ''}
-                        </div>
-                        <span class="${t.result > 0 ? 'positive' : t.result < 0 ? 'negative' : ''}" style="font-size: 14px;">
-                            ${t.result > 0 ? '+' : ''}${t.result}%
-                        </span>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        function updateEquityChart() {
-            const data = [{ date: 'Start', balance: currentAccount.starting_balance }];
-            let balance = currentAccount.starting_balance;
-            allTrades.forEach((t, i) => {
-                balance += t.result * currentAccount.risk_per_trade;
-                data.push({ date: `T${i + 1}`, balance });
-            });
-
-            const ctx = document.getElementById('equityChart');
-            if (equityChart) equityChart.destroy();
-            
-            equityChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: data.map(d => d.date),
-                    datasets: [{
-                        label: 'Account Balance',
-                        data: data.map(d => d.balance),
-                        borderColor: '#2563eb',
-                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
-                        tension: 0.4,
-                        fill: true,
-                        borderWidth: 3,
-                        pointBackgroundColor: '#2563eb',
-                        pointBorderColor: '#1e293b',
-                        pointBorderWidth: 2,
-                        pointRadius: 4
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { labels: { color: '#e2e8f0', font: { size: 12 } } }
-                    },
-                    scales: {
-                        y: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } },
-                        x: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } }
-                    }
-                }
-            });
-        }
-
-        function updateTradesTable() {
-            const rows = allTrades.map(t => `
-                <tr>
-                    <td>${t.trade_date}</td>
-                    <td class="${t.result > 0 ? 'positive' : t.result < 0 ? 'negative' : ''}">${t.result > 0 ? '+' : ''}${t.result}%</td>
-                    <td class="${t.result * currentAccount.risk_per_trade > 0 ? 'positive' : t.result * currentAccount.risk_per_trade < 0 ? 'negative' : ''}">$${(t.result * currentAccount.risk_per_trade).toFixed(2)}</td>
-                    <td style="font-size: 13px; color: #94a3b8;">${t.notes || '—'}</td>
-                    <td><button class="btn btn-danger btn-small" onclick="deleteTrade('${t.id}')">Delete</button></td>
-                </tr>
-            `).join('');
-            document.getElementById('tradesTableBody').innerHTML = rows || '<tr><td colspan="5" style="text-align: center; color: #94a3b8;">No trades yet</td></tr>';
-        }
-
-        function updateAnalysis() {
-            let balance = currentAccount.starting_balance;
-            const rows = allTrades.map(t => {
-                balance += t.result * currentAccount.risk_per_trade;
-                return `
-                    <tr>
-                        <td>${t.trade_date}</td>
-                        <td class="${t.result > 0 ? 'positive' : t.result < 0 ? 'negative' : ''}">${t.result > 0 ? '+' : ''}${t.result}%</td>
-                        <td class="${t.result * currentAccount.risk_per_trade > 0 ? 'positive' : t.result * currentAccount.risk_per_trade < 0 ? 'negative' : ''}">$${(t.result * currentAccount.risk_per_trade).toFixed(2)}</td>
-                        <td>$${balance.toFixed(2)}</td>
-                        <td>${t.result > 0 ? '✅ Win' : t.result < 0 ? '❌ Loss' : '〰️ Break'}</td>
-                    </tr>
-                `;
-            }).join('');
-            document.getElementById('analysisTable').innerHTML = rows || '<tr><td colspan="5" style="text-align: center; color: #94a3b8;">No data</td></tr>';
-        }
-
-        // ==================== EXPORT ====================
-        document.getElementById('exportBtn').onclick = () => {
-            if (!currentAccount || allTrades.length === 0) {
-                showToast('No trades to export', 'error');
-                return;
-            }
-
-            let csv = 'Date,Result %,P&L,Running Balance\n';
-            let balance = currentAccount.starting_balance;
-            allTrades.forEach(t => {
-                balance += t.result * currentAccount.risk_per_trade;
-                csv += `${t.trade_date},${t.result},$${(t.result * currentAccount.risk_per_trade).toFixed(2)},$${balance.toFixed(2)}\n`;
-            });
-
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${currentAccount.name}-trades.csv`;
-            a.click();
-            showToast('CSV exported successfully!');
-        };
-
-        // ==================== TABS ====================
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.onclick = () => {
-                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
-                btn.classList.add('active');
-                document.getElementById(btn.dataset.tab + 'Tab').classList.remove('hidden');
-            };
-        });
-
-        document.getElementById('settingsBtn').onclick = () => {
-            showToast('Settings coming soon!');
-        };
+        container.appendChild(div);
+    });
+}
     </script>
 </body>
 </html>
